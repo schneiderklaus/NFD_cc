@@ -235,9 +235,15 @@ GenericLinkService::checkCongestionLevel(lp::Packet& pkt)
   // queue capacity.
   size_t congestionThreshold = m_options.defaultCongestionThreshold;
   if (getTransport()->getSendQueueCapacity() >= 0) {
-    congestionThreshold = std::min(congestionThreshold,
+    size_t newThresh = std::min(congestionThreshold,
                                    static_cast<size_t>(getTransport()->getSendQueueCapacity()) /
                                                        DEFAULT_CONGESTION_THRESHOLD_DIVISOR);
+
+    if (newThresh < congestionThreshold) {
+      NFD_LOG_FACE_TRACE(
+          "Lowered congestion threshold: " << congestionThreshold << " to " << newThresh);
+      congestionThreshold = newThresh;
+    }
   }
 
   if (sendQueueLength > 0) {
