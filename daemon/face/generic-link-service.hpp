@@ -295,7 +295,7 @@ PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   /// Time to mark next packet due to send queue congestion
   time::steady_clock::TimePoint m_nextMarkTime;
   /// Time last packet was marked
-  time::steady_clock::TimePoint m_lastMarkTime;
+//  time::steady_clock::TimePoint m_lastMarkTime;
   /// number of marked packets in the current incident of congestion
   size_t m_nMarkedSinceInMarkingState;
 
