@@ -142,7 +142,7 @@ public:
      *
      *  The default value (64 KiB) works well for a queue capacity of 200 KiB.
      */
-    size_t defaultCongestionThreshold = 65536;
+    size_t defaultCongestionThreshold = 12536;
 
     /** \brief enables self-learning forwarding support
      */
