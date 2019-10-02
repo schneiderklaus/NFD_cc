@@ -39,7 +39,8 @@ constexpr size_t CONGESTION_MARK_SIZE = tlv::sizeOfVarNumber(lp::tlv::Congestion
                                         tlv::sizeOfVarNumber(sizeof(uint64_t)) +        // length
                                         tlv::sizeOfNonNegativeInteger(UINT64_MAX);      // value
 
-constexpr uint32_t DEFAULT_CONGESTION_THRESHOLD_DIVISOR = 2;
+// TODO: Don't limit threshold by queue size!
+constexpr uint32_t DEFAULT_CONGESTION_THRESHOLD_DIVISOR = 1;
 
 GenericLinkService::GenericLinkService(const GenericLinkService::Options& options)
   : m_options(options)
@@ -48,7 +49,7 @@ GenericLinkService::GenericLinkService(const GenericLinkService::Options& option
   , m_reliability(m_options.reliabilityOptions, this)
   , m_lastSeqNo(-2)
   , m_nextMarkTime(time::steady_clock::TimePoint::max())
-  , m_lastMarkTime(time::steady_clock::TimePoint::min())
+//  , m_lastMarkTime(time::steady_clock::TimePoint::min())
   , m_nMarkedSinceInMarkingState(0)
 {
   m_reassembler.beforeTimeout.connect([this] (auto...) { ++this->nReassemblyTimeouts; });
@@ -241,11 +242,19 @@ GenericLinkService::checkCongestionLevel(lp::Packet& pkt)
   // queue capacity.
   size_t congestionThreshold = m_options.defaultCongestionThreshold;
   if (getTransport()->getSendQueueCapacity() >= 0) {
-    congestionThreshold = std::min(congestionThreshold,
-                                   static_cast<size_t>(getTransport()->getSendQueueCapacity()) /
-                                                       DEFAULT_CONGESTION_THRESHOLD_DIVISOR);
+    size_t newThresh = std::min(congestionThreshold,
+                                static_cast<size_t>(getTransport()->getSendQueueCapacity()) /
+                                                    DEFAULT_CONGESTION_THRESHOLD_DIVISOR);
+
+    if (newThresh < congestionThreshold) {
+      NFD_LOG_FACE_TRACE(
+          "Lowered congestion threshold: " << congestionThreshold << " to " << newThresh);
+      // TODO: Maybe don't lower threshold!
+      congestionThreshold = newThresh;
+    }
   }
 
+  // TODO: How to implement CoDel?
   if (sendQueueLength > 0) {
     NFD_LOG_FACE_TRACE("txqlen=" << sendQueueLength << " threshold=" << congestionThreshold <<
                        " capacity=" << getTransport()->getSendQueueCapacity());
@@ -253,11 +262,18 @@ GenericLinkService::checkCongestionLevel(lp::Packet& pkt)
 
   if (static_cast<size_t>(sendQueueLength) > congestionThreshold) { // Send queue is congested
     const auto now = time::steady_clock::now();
-    if (now >= m_nextMarkTime || now >= m_lastMarkTime + m_options.baseCongestionMarkingInterval) {
+
+    if (m_nextMarkTime == time::steady_clock::TimePoint::max()) {
+      m_nextMarkTime = now + m_options.baseCongestionMarkingInterval;
+    }
+    else if (now >= m_nextMarkTime) {
+      // Okay to drop!
+
+//      || now >= m_lastMarkTime + m_options.baseCongestionMarkingInterval) {
       // Mark at most one initial packet per baseCongestionMarkingInterval
-      if (m_nMarkedSinceInMarkingState == 0) {
-        m_nextMarkTime = now;
-      }
+//      if (m_nMarkedSinceInMarkingState == 0) {
+//        m_nextMarkTime = now;
+//      }
 
       // Time to mark packet
       pkt.set<lp::CongestionMarkField>(1);
@@ -269,13 +285,13 @@ GenericLinkService::checkCongestionLevel(lp::Packet& pkt)
       // marked in this incident of congestion
       m_nextMarkTime += time::nanoseconds(static_cast<time::nanoseconds::rep>(
                                             m_options.baseCongestionMarkingInterval.count() /
-                                            std::sqrt(m_nMarkedSinceInMarkingState)));
-      m_lastMarkTime = now;
+                                            std::sqrt(m_nMarkedSinceInMarkingState + 1)));
     }
   }
   else if (m_nextMarkTime != time::steady_clock::TimePoint::max()) {
     // Congestion incident has ended, so reset
-    NFD_LOG_FACE_DEBUG("Send queue length dropped below congestion threshold");
+    NFD_LOG_FACE_DEBUG("Send queue length dropped below congestion threshold. "
+                       "Resetting nextMarkTime!");
     m_nextMarkTime = time::steady_clock::TimePoint::max();
     m_nMarkedSinceInMarkingState = 0;
   }
